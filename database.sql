@@ -1,7 +1,13 @@
+-- ============================================================
+-- Creacion de base de datos y seleccion de esquema
+-- ============================================================
 CREATE DATABASE IF NOT EXISTS usuarios CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci;
 USE usuarios;
 
+-- ============================================================
 -- Tabla de usuarios
+-- Guarda informacion de cuenta y foto de perfil
+-- ============================================================
 CREATE TABLE IF NOT EXISTS usuario (
     id INT AUTO_INCREMENT PRIMARY KEY,
     nombre_usuario VARCHAR(50) NOT NULL UNIQUE,
@@ -14,8 +20,11 @@ CREATE TABLE IF NOT EXISTS usuario (
 -- Si tu tabla ya existia sin foto_perfil, ejecuta:
 -- ALTER TABLE usuario ADD COLUMN foto_perfil VARCHAR(255) NULL AFTER password_hash;
 
+-- ============================================================
 -- Tabla de mensajes
-CREATE TABLE IF NOT EXISTS mensaje(
+-- Incluye estado de visto para control de checks y bloqueos
+-- ============================================================
+CREATE TABLE IF NOT EXISTS mensaje (
     id INT AUTO_INCREMENT PRIMARY KEY,
     remitente_id INT NOT NULL,
     destinatario_id INT NOT NULL,
@@ -31,6 +40,8 @@ CREATE TABLE IF NOT EXISTS mensaje(
 -- ALTER TABLE mensaje ADD COLUMN visto TINYINT(1) NOT NULL DEFAULT 0 AFTER contenido;
 -- ALTER TABLE mensaje ADD COLUMN visto_en TIMESTAMP NULL DEFAULT NULL AFTER visto;
 
--- Indice util para conversacion (permite reimportar sin error)
+-- ============================================================
+-- Indice de apoyo para consultas de conversacion
+-- ============================================================
 DROP INDEX IF EXISTS idx_mensaje_chat ON mensaje;
 CREATE INDEX idx_mensaje_chat ON mensaje(remitente_id, destinatario_id, enviado_en);

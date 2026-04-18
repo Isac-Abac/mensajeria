@@ -1,4 +1,7 @@
 <?php
+// ------------------------------------------------------------
+// API: Obtener conversacion y marcar mensajes como vistos
+// ------------------------------------------------------------
 session_start();
 header('Content-Type: application/json; charset=utf-8');
 
@@ -9,10 +12,10 @@ if (!isset($_SESSION['usuario_id'])) {
 }
 
 require_once __DIR__ . '/../conexion.php';
-
 $usuarioActualId = (int) $_SESSION['usuario_id'];
 $destinatarioId = (int) ($_GET['destinatario_id'] ?? 0);
 
+// Validar columnas de estado "visto"
 $checkVisto = $conn->query("SHOW COLUMNS FROM mensaje LIKE 'visto'");
 $checkVistoEn = $conn->query("SHOW COLUMNS FROM mensaje LIKE 'visto_en'");
 if (!$checkVisto || !$checkVistoEn || $checkVisto->num_rows === 0 || $checkVistoEn->num_rows === 0) {
@@ -31,6 +34,7 @@ if ($destinatarioId <= 0) {
     exit;
 }
 
+// Verificar usuario destino
 $checkUser = $conn->prepare('SELECT id FROM usuario WHERE id = ? LIMIT 1');
 if (!$checkUser) {
     http_response_code(500);
@@ -38,7 +42,6 @@ if (!$checkUser) {
     $conn->close();
     exit;
 }
-
 $checkUser->bind_param('i', $destinatarioId);
 if (!$checkUser->execute()) {
     http_response_code(500);
@@ -47,7 +50,6 @@ if (!$checkUser->execute()) {
     $conn->close();
     exit;
 }
-
 $existe = $checkUser->get_result()->fetch_assoc();
 $checkUser->close();
 
@@ -58,6 +60,7 @@ if (!$existe) {
     exit;
 }
 
+// Marcar como vistos los mensajes recibidos por el usuario actual
 $updateSeen = $conn->prepare('
     UPDATE mensaje
     SET visto = 1, visto_en = NOW()
@@ -69,6 +72,7 @@ if ($updateSeen) {
     $updateSeen->close();
 }
 
+// Cargar la conversacion completa ordenada por fecha
 $query = '
     SELECT m.id, m.contenido, m.enviado_en, m.visto, m.visto_en,
            m.remitente_id, ur.nombre_usuario AS remitente,
@@ -88,7 +92,6 @@ if (!$stmt) {
     $conn->close();
     exit;
 }
-
 $stmt->bind_param('iiii', $usuarioActualId, $destinatarioId, $destinatarioId, $usuarioActualId);
 if (!$stmt->execute()) {
     http_response_code(500);

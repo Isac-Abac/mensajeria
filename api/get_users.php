@@ -1,4 +1,7 @@
 <?php
+// ------------------------------------------------------------
+// API: Listar usuarios disponibles para chatear
+// ------------------------------------------------------------
 session_start();
 header('Content-Type: application/json; charset=utf-8');
 
@@ -9,9 +12,9 @@ if (!isset($_SESSION['usuario_id'])) {
 }
 
 require_once __DIR__ . '/../conexion.php';
-
 $usuarioActualId = (int) $_SESSION['usuario_id'];
 
+// Detectar si existe la columna de foto (compatibilidad)
 $tieneFotoPerfil = false;
 $checkColumn = $conn->query("SHOW COLUMNS FROM usuario LIKE 'foto_perfil'");
 if ($checkColumn && $checkColumn->num_rows > 0) {
@@ -29,7 +32,6 @@ if (!$stmt) {
     $conn->close();
     exit;
 }
-
 $stmt->bind_param('i', $usuarioActualId);
 if (!$stmt->execute()) {
     http_response_code(500);

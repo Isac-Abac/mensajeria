@@ -1,4 +1,7 @@
 <?php
+// ------------------------------------------------------------
+// API: Subir/actualizar foto de perfil del usuario
+// ------------------------------------------------------------
 session_start();
 header('Content-Type: application/json; charset=utf-8');
 
@@ -7,13 +10,11 @@ if (!isset($_SESSION['usuario_id'])) {
     echo json_encode(['ok' => false, 'mensaje' => 'No autorizado']);
     exit;
 }
-
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     http_response_code(405);
     echo json_encode(['ok' => false, 'mensaje' => 'Metodo no permitido']);
     exit;
 }
-
 if (!isset($_FILES['foto']) || $_FILES['foto']['error'] !== UPLOAD_ERR_OK) {
     http_response_code(422);
     echo json_encode(['ok' => false, 'mensaje' => 'Debes seleccionar una imagen valida']);
@@ -22,6 +23,7 @@ if (!isset($_FILES['foto']) || $_FILES['foto']['error'] !== UPLOAD_ERR_OK) {
 
 require_once __DIR__ . '/../conexion.php';
 
+// Verificar columna de foto de perfil
 $checkColumn = $conn->query("SHOW COLUMNS FROM usuario LIKE 'foto_perfil'");
 if (!$checkColumn || $checkColumn->num_rows === 0) {
     http_response_code(500);
@@ -36,6 +38,7 @@ if (!$checkColumn || $checkColumn->num_rows === 0) {
 $usuarioId = (int) $_SESSION['usuario_id'];
 $archivo = $_FILES['foto'];
 
+// Limite de tamano
 if ($archivo['size'] > 2 * 1024 * 1024) {
     http_response_code(422);
     echo json_encode(['ok' => false, 'mensaje' => 'La imagen no debe superar 2MB']);
@@ -43,13 +46,13 @@ if ($archivo['size'] > 2 * 1024 * 1024) {
     exit;
 }
 
+// Tipos permitidos
 $mimePermitidos = [
     'image/jpeg' => 'jpg',
     'image/png' => 'png',
     'image/webp' => 'webp',
     'image/gif' => 'gif'
 ];
-
 $mime = mime_content_type($archivo['tmp_name']);
 if (!isset($mimePermitidos[$mime])) {
     http_response_code(422);
@@ -58,6 +61,7 @@ if (!isset($mimePermitidos[$mime])) {
     exit;
 }
 
+// Generar ruta final
 $extension = $mimePermitidos[$mime];
 $nombre = 'user_' . $usuarioId . '_' . time() . '.' . $extension;
 $directorioFisico = __DIR__ . '/../uploads/profile';
@@ -80,6 +84,7 @@ if (!move_uploaded_file($archivo['tmp_name'], $rutaFisica)) {
     exit;
 }
 
+// Guardar ruta en base de datos
 $stmt = $conn->prepare('UPDATE usuario SET foto_perfil = ? WHERE id = ?');
 if (!$stmt) {
     http_response_code(500);
@@ -87,7 +92,6 @@ if (!$stmt) {
     $conn->close();
     exit;
 }
-
 $stmt->bind_param('si', $rutaPublica, $usuarioId);
 if (!$stmt->execute()) {
     http_response_code(500);

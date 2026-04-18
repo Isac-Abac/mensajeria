@@ -1,7 +1,9 @@
 <?php
+// ------------------------------------------------------------
+// API: Login de usuario
+// ------------------------------------------------------------
 session_start();
 header('Content-Type: application/json; charset=utf-8');
-
 require_once __DIR__ . '/../conexion.php';
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
@@ -19,6 +21,7 @@ if ($nombre === '' || $password === '') {
     exit;
 }
 
+// Buscar usuario por nombre
 $stmt = $conn->prepare('SELECT id, nombre_usuario, password_hash FROM usuario WHERE nombre_usuario = ? LIMIT 1');
 if (!$stmt) {
     http_response_code(500);
@@ -26,7 +29,6 @@ if (!$stmt) {
     $conn->close();
     exit;
 }
-
 $stmt->bind_param('s', $nombre);
 if (!$stmt->execute()) {
     http_response_code(500);
@@ -35,10 +37,10 @@ if (!$stmt->execute()) {
     $conn->close();
     exit;
 }
-
 $usuario = $stmt->get_result()->fetch_assoc();
 $stmt->close();
 
+// Validar credenciales
 if (!$usuario || !password_verify($password, $usuario['password_hash'])) {
     http_response_code(401);
     echo json_encode(['ok' => false, 'mensaje' => 'Credenciales incorrectas']);
@@ -46,6 +48,7 @@ if (!$usuario || !password_verify($password, $usuario['password_hash'])) {
     exit;
 }
 
+// Guardar sesion
 $_SESSION['usuario_id'] = (int) $usuario['id'];
 $_SESSION['nombre_usuario'] = $usuario['nombre_usuario'];
 

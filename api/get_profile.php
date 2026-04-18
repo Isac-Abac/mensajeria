@@ -1,4 +1,7 @@
 <?php
+// ------------------------------------------------------------
+// API: Obtener perfil del usuario autenticado
+// ------------------------------------------------------------
 session_start();
 header('Content-Type: application/json; charset=utf-8');
 
@@ -9,9 +12,9 @@ if (!isset($_SESSION['usuario_id'])) {
 }
 
 require_once __DIR__ . '/../conexion.php';
-
 $usuarioId = (int) $_SESSION['usuario_id'];
 
+// Verificar columna de foto de perfil
 $checkColumn = $conn->query("SHOW COLUMNS FROM usuario LIKE 'foto_perfil'");
 if (!$checkColumn || $checkColumn->num_rows === 0) {
     http_response_code(500);
@@ -30,7 +33,6 @@ if (!$stmt) {
     $conn->close();
     exit;
 }
-
 $stmt->bind_param('i', $usuarioId);
 if (!$stmt->execute()) {
     http_response_code(500);

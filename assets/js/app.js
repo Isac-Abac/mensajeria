@@ -1,3 +1,10 @@
+﻿// ============================================================
+// Script principal del chat
+// ============================================================
+
+// ------------------------------------------------------------
+// Referencias del DOM
+// ------------------------------------------------------------
 const usersList = document.getElementById('users-list');
 const chatHeader = document.getElementById('chat-header');
 const messagesWrap = document.getElementById('messages');
@@ -15,12 +22,46 @@ const usuarioActualEl = document.getElementById('usuario-actual');
 const emojiToggle = document.getElementById('emoji-toggle');
 const emojiPanel = document.getElementById('emoji-panel');
 const emojiPicker = document.getElementById('emoji-picker');
+const attachToggle = document.getElementById('attach-toggle');
+const attachMenu = document.getElementById('attach-menu');
+const micToggle = document.getElementById('mic-toggle');
 
+// Inputs ocultos por tipo de adjunto
+const fileInputs = {
+    imagenes: document.getElementById('file-imagenes'),
+    videos: document.getElementById('file-videos'),
+    documentos: document.getElementById('file-documentos'),
+    audios: document.getElementById('file-audios')
+};
+
+// ------------------------------------------------------------
+// Estado global de la vista
+// ------------------------------------------------------------
 const AVATAR_POR_DEFECTO = 'assets/img/default-avatar.png';
 let destinatarioSeleccionado = null;
 let usuarioChatActual = null;
 let autoRefresh = null;
+let mediaRecorder = null;
+let audioChunks = [];
+let isRecordingAudio = false;
+let audioStopTimer = null;
+const MAX_MEDIA_SECONDS = 300;
+const MAX_SIZE_BYTES = {
+    imagenes: 8 * 1024 * 1024,
+    videos: 120 * 1024 * 1024,
+    documentos: 12 * 1024 * 1024,
+    audios: 40 * 1024 * 1024
+};
 
+function hayMediaReproduciendo() {
+    if (!messagesWrap) return false;
+    const elementos = messagesWrap.querySelectorAll('audio, video');
+    return Array.from(elementos).some((media) => !media.paused && !media.ended);
+}
+
+// ------------------------------------------------------------
+// Utilidades base
+// ------------------------------------------------------------
 function mostrarAlerta(titulo, texto, icono = 'info') {
     if (window.Swal && typeof window.Swal.fire === 'function') {
         window.Swal.fire({ title: titulo, text: texto, icon: icono, confirmButtonText: 'Aceptar' });
@@ -33,11 +74,13 @@ async function requestData(url, options = {}) {
     const res = await fetch(url, options);
     const raw = await res.text();
     let data;
+
     try {
         data = JSON.parse(raw);
     } catch (e) {
         data = { ok: false, mensaje: raw || 'Respuesta invalida del servidor' };
     }
+
     return { res, data };
 }
 
@@ -53,13 +96,18 @@ function resolverAvatar(ruta, bustCache = false) {
     return bustCache ? `${ruta}?v=${Date.now()}` : ruta;
 }
 
+// ------------------------------------------------------------
+// UI auxiliar (tooltip, menus, modal)
+// ------------------------------------------------------------
 function mostrarHoraFlotante(elemento, fechaSQL) {
     if (!timeTooltip) return;
+
     timeTooltip.textContent = formatearFechaHora(fechaSQL);
     const rect = elemento.getBoundingClientRect();
     timeTooltip.style.left = `${rect.left + rect.width / 2}px`;
     timeTooltip.style.top = `${rect.top - 10}px`;
     timeTooltip.classList.add('visible');
+
     clearTimeout(mostrarHoraFlotante.timeoutId);
     mostrarHoraFlotante.timeoutId = setTimeout(() => timeTooltip.classList.remove('visible'), 1800);
 }
@@ -70,6 +118,7 @@ function cerrarMenusMensaje() {
 
 function abrirAvatarFlotante(usuario) {
     if (!avatarModal || !avatarModalImage || !avatarModalName || !usuario) return;
+
     avatarModalImage.src = resolverAvatar(usuario.foto_perfil);
     avatarModalName.textContent = '@' + usuario.nombre_usuario;
     avatarModal.classList.add('visible');
@@ -87,17 +136,77 @@ function cerrarAvatarFlotante() {
     avatarModal.classList.remove('visible');
 }
 
+// ------------------------------------------------------------
+// Emojis
+// ------------------------------------------------------------
 function insertarEmoji(emoji) {
     const start = contenido.selectionStart ?? contenido.value.length;
     const end = contenido.selectionEnd ?? contenido.value.length;
     const before = contenido.value.slice(0, start);
     const after = contenido.value.slice(end);
+
     contenido.value = `${before}${emoji}${after}`;
+
     const nextPos = start + emoji.length;
     contenido.focus();
     contenido.setSelectionRange(nextPos, nextPos);
 }
 
+// ------------------------------------------------------------
+// Adjuntos (parser/formatter)
+// ------------------------------------------------------------
+function formatAttachmentMessage(tipo, nombre, ruta) {
+    return `[adjunto|${tipo}|${encodeURIComponent(nombre)}]${ruta}`;
+}
+
+function parseAttachmentMessage(contenidoMensaje) {
+    const match = contenidoMensaje.match(/^\[adjunto\|([^|]+)\|([^\]]+)\](.+)$/);
+    if (!match) return null;
+
+    let nombre = match[2];
+    try {
+        nombre = decodeURIComponent(nombre);
+    } catch (_) {}
+
+    return { tipo: match[1], nombre, ruta: match[3] };
+}
+
+// ------------------------------------------------------------
+// Validaciones multimedia (duracion maxima)
+// ------------------------------------------------------------
+function obtenerDuracionMultimedia(archivo, tipoElemento) {
+    return new Promise((resolve, reject) => {
+        const url = URL.createObjectURL(archivo);
+        const elemento = document.createElement(tipoElemento);
+        elemento.preload = 'metadata';
+        elemento.src = url;
+
+        const limpiar = () => {
+            URL.revokeObjectURL(url);
+            elemento.removeAttribute('src');
+            elemento.load();
+        };
+
+        elemento.onloadedmetadata = () => {
+            const duracion = Number(elemento.duration || 0);
+            limpiar();
+            if (!Number.isFinite(duracion) || duracion <= 0) {
+                reject(new Error('No se pudo leer la duracion del archivo'));
+                return;
+            }
+            resolve(duracion);
+        };
+
+        elemento.onerror = () => {
+            limpiar();
+            reject(new Error('No se pudo procesar metadata del archivo'));
+        };
+    });
+}
+
+// ------------------------------------------------------------
+// Cabecera de chat
+// ------------------------------------------------------------
 function renderHeaderChat(usuario) {
     if (!usuario) {
         chatHeader.innerHTML = '<span>Selecciona una cuenta para conversar</span>';
@@ -105,6 +214,7 @@ function renderHeaderChat(usuario) {
     }
 
     chatHeader.innerHTML = '';
+
     const avatar = document.createElement('img');
     avatar.className = 'chat-header-avatar';
     avatar.src = resolverAvatar(usuario.foto_perfil);
@@ -120,18 +230,24 @@ function renderHeaderChat(usuario) {
     chatHeader.appendChild(nombre);
 }
 
+// ------------------------------------------------------------
+// Perfil de usuario
+// ------------------------------------------------------------
 async function cargarPerfil() {
     try {
         const { res, data } = await requestData('api/get_profile.php');
         if (res.ok && data.ok && data.perfil && data.perfil.foto_perfil) {
             profileImage.src = resolverAvatar(data.perfil.foto_perfil, true);
         }
-    } catch (_) {}
+    } catch (_) {
+        // No interrumpir chat si falla perfil
+    }
 }
 
 async function subirFotoPerfil(archivo) {
     const formData = new FormData();
     formData.append('foto', archivo);
+
     const { res, data } = await requestData('api/upload_profile.php', { method: 'POST', body: formData });
     if (!res.ok || !data.ok) throw new Error(data.mensaje || 'No se pudo subir la imagen');
 
@@ -144,8 +260,139 @@ async function subirFotoPerfil(archivo) {
     }
 }
 
+// ------------------------------------------------------------
+// Mensajeria: envio de texto y adjuntos
+// ------------------------------------------------------------
+async function enviarTexto(texto) {
+    const formData = new FormData();
+    formData.append('destinatario_id', String(destinatarioSeleccionado));
+    formData.append('contenido', texto);
+
+    const { res, data } = await requestData('api/send_message.php', { method: 'POST', body: formData });
+    if (!res.ok || !data.ok) throw new Error(data.mensaje || 'No se pudo enviar el mensaje');
+}
+
+async function subirAdjunto(tipo, archivo) {
+    const formData = new FormData();
+    formData.append('tipo', tipo);
+    formData.append('archivo', archivo);
+
+    const { res, data } = await requestData('api/upload_attachment.php', { method: 'POST', body: formData });
+    if (!res.ok || !data.ok) throw new Error(data.mensaje || 'No se pudo subir el archivo');
+    return data;
+}
+
+async function procesarAdjunto(tipo, archivo) {
+    if (!destinatarioSeleccionado) {
+        mostrarAlerta('Atencion', 'Primero selecciona una cuenta existente', 'warning');
+        return;
+    }
+
+    try {
+        const info = await subirAdjunto(tipo, archivo);
+        const mensaje = formatAttachmentMessage(info.tipo, info.nombre, info.ruta);
+        await enviarTexto(mensaje);
+        await cargarMensajes(true);
+        if (attachMenu) attachMenu.classList.remove('visible');
+    } catch (error) {
+        mostrarAlerta('Error', error.message, 'error');
+    }
+}
+
+// ------------------------------------------------------------
+// Audio por microfono (grabar y enviar)
+// ------------------------------------------------------------
+async function toggleGrabacionAudio() {
+    if (!destinatarioSeleccionado) {
+        mostrarAlerta('Atencion', 'Primero selecciona una cuenta existente', 'warning');
+        return;
+    }
+
+    if (!navigator.mediaDevices || typeof MediaRecorder === 'undefined') {
+        mostrarAlerta('No compatible', 'Tu navegador no soporta grabacion de audio', 'warning');
+        return;
+    }
+
+    // Si ya esta grabando, detener y enviar
+    if (isRecordingAudio && mediaRecorder) {
+        mediaRecorder.stop();
+        isRecordingAudio = false;
+        micToggle.classList.remove('recording');
+        micToggle.textContent = String.fromCodePoint(0x1F3A4);
+        return;
+    }
+
+    // Iniciar nueva grabacion
+    try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        const tiposPreferidos = [
+            'audio/webm;codecs=opus',
+            'audio/webm',
+            'audio/ogg;codecs=opus',
+            'audio/ogg',
+            'audio/mp4'
+        ];
+        const mimeElegido = tiposPreferidos.find((tipo) => {
+            if (typeof MediaRecorder.isTypeSupported !== 'function') return false;
+            return MediaRecorder.isTypeSupported(tipo);
+        });
+        mediaRecorder = mimeElegido ? new MediaRecorder(stream, { mimeType: mimeElegido }) : new MediaRecorder(stream);
+        audioChunks = [];
+
+        mediaRecorder.addEventListener('dataavailable', (event) => {
+            if (event.data && event.data.size > 0) audioChunks.push(event.data);
+        });
+
+        mediaRecorder.addEventListener('stop', async () => {
+            if (audioStopTimer) {
+                clearTimeout(audioStopTimer);
+                audioStopTimer = null;
+            }
+
+            try {
+                const mime = (mediaRecorder.mimeType || 'audio/webm').split(';')[0].trim().toLowerCase();
+                const extension = mime.includes('ogg') ? 'ogg' : mime.includes('mp4') ? 'm4a' : mime.includes('wav') ? 'wav' : 'webm';
+                const blob = new Blob(audioChunks, { type: mime || 'audio/webm' });
+                if (!blob.size) {
+                    mostrarAlerta('Error', 'No se pudo capturar audio valido', 'error');
+                    return;
+                }
+                const file = new File([blob], `audio_${Date.now()}.${extension}`, { type: mime || 'audio/webm' });
+                await procesarAdjunto('audios', file);
+            } catch (_) {
+                mostrarAlerta('Error', 'No se pudo procesar el audio grabado', 'error');
+            } finally {
+                stream.getTracks().forEach((track) => track.stop());
+            }
+        });
+
+        mediaRecorder.start(1000);
+        isRecordingAudio = true;
+        micToggle.classList.add('recording');
+        micToggle.textContent = 'Stop';
+
+        audioStopTimer = setTimeout(() => {
+            if (isRecordingAudio && mediaRecorder && mediaRecorder.state === 'recording') {
+                mediaRecorder.stop();
+                isRecordingAudio = false;
+                micToggle.classList.remove('recording');
+                micToggle.textContent = String.fromCodePoint(0x1F3A4);
+                mostrarAlerta('Limite alcanzado', 'El audio se detuvo al llegar a 5 minutos', 'info');
+            }
+        }, MAX_MEDIA_SECONDS * 1000);
+
+        mostrarAlerta('Grabando', 'Presiona nuevamente el microfono para detener y enviar (maximo 5 minutos)', 'info');
+    } catch (_) {
+        mostrarAlerta('Error', 'No se pudo iniciar la grabacion de audio', 'error');
+    }
+}
+
+// ------------------------------------------------------------
+// Edicion y eliminacion de mensajes
+// ------------------------------------------------------------
 async function editarMensaje(msg) {
     let nuevoTexto = '';
+
     if (window.Swal && typeof window.Swal.fire === 'function') {
         const result = await Swal.fire({
             title: 'Editar mensaje',
@@ -169,6 +416,7 @@ async function editarMensaje(msg) {
     const formData = new FormData();
     formData.append('mensaje_id', String(msg.id));
     formData.append('contenido', nuevoTexto);
+
     const { res, data } = await requestData('api/edit_message.php', { method: 'POST', body: formData });
     if (!res.ok || !data.ok) throw new Error(data.mensaje || 'No se pudo editar el mensaje');
 }
@@ -184,20 +432,25 @@ async function eliminarMensaje(msg) {
             cancelButtonText: 'Cancelar'
         });
         if (!confirmacion.isConfirmed) return;
-    } else if (!confirm('Esta accion no se puede deshacer. ¿Eliminar mensaje?')) {
+    } else if (!confirm('Esta accion no se puede deshacer. Eliminar mensaje?')) {
         return;
     }
 
     const formData = new FormData();
     formData.append('mensaje_id', String(msg.id));
+
     const { res, data } = await requestData('api/delete_message.php', { method: 'POST', body: formData });
     if (!res.ok || !data.ok) throw new Error(data.mensaje || 'No se pudo eliminar el mensaje');
 }
 
+// ------------------------------------------------------------
+// Eventos globales de pagina
+// ------------------------------------------------------------
 window.addEventListener('load', () => {
     contenido.value = '';
     if (chatMessage) chatMessage.textContent = '';
 });
+
 window.addEventListener('pageshow', () => {
     contenido.value = '';
     if (chatMessage) chatMessage.textContent = '';
@@ -207,22 +460,20 @@ document.addEventListener('click', (e) => {
     if (!e.target.closest('.bubble')) timeTooltip.classList.remove('visible');
     if (!e.target.closest('.message-menu-wrap')) cerrarMenusMensaje();
     if (e.target === avatarModal) cerrarAvatarFlotante();
-    if (emojiPanel && !e.target.closest('#emoji-panel') && !e.target.closest('#emoji-toggle')) {
-        emojiPanel.classList.remove('visible');
-    }
+    if (emojiPanel && !e.target.closest('#emoji-panel') && !e.target.closest('#emoji-toggle')) emojiPanel.classList.remove('visible');
+    if (attachMenu && !e.target.closest('#attach-menu') && !e.target.closest('#attach-toggle')) attachMenu.classList.remove('visible');
 });
 
 if (avatarModalClose) avatarModalClose.addEventListener('click', cerrarAvatarFlotante);
-if (profileImage) {
-    profileImage.style.cursor = 'pointer';
-    profileImage.addEventListener('click', abrirMiAvatarFlotante);
-}
+if (profileImage) profileImage.addEventListener('click', abrirMiAvatarFlotante);
+
 if (emojiToggle && emojiPanel) {
     emojiToggle.addEventListener('click', (e) => {
         e.stopPropagation();
         emojiPanel.classList.toggle('visible');
     });
 }
+
 if (emojiPicker) {
     emojiPicker.addEventListener('emoji-click', (event) => {
         const emoji = event?.detail?.unicode || '';
@@ -231,6 +482,68 @@ if (emojiPicker) {
     });
 }
 
+if (attachToggle && attachMenu) {
+    attachToggle.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const rect = attachToggle.getBoundingClientRect();
+        attachMenu.style.left = `${Math.max(12, rect.left)}px`;
+        attachMenu.style.top = `${rect.bottom + 8}px`;
+        attachMenu.classList.toggle('visible');
+    });
+}
+
+// Asociar clicks del menu de adjuntos
+Array.from(document.querySelectorAll('.attach-option')).forEach((btn) => {
+    btn.addEventListener('click', () => {
+        const tipo = btn.dataset.attachType;
+        const input = fileInputs[tipo];
+        if (input) input.click();
+    });
+});
+
+// Asociar seleccion de archivos por categoria
+Object.keys(fileInputs).forEach((tipo) => {
+    const input = fileInputs[tipo];
+    if (!input) return;
+
+    input.addEventListener('change', async () => {
+        const archivo = input.files && input.files[0] ? input.files[0] : null;
+        if (!archivo) return;
+
+        if (archivo.size > MAX_SIZE_BYTES[tipo]) {
+            const mb = Math.round(MAX_SIZE_BYTES[tipo] / (1024 * 1024));
+            mostrarAlerta('Archivo no permitido', `El archivo excede ${mb}MB para ${tipo}`, 'warning');
+            input.value = '';
+            return;
+        }
+
+        if (tipo === 'videos' || tipo === 'audios') {
+            try {
+                const duracion = await obtenerDuracionMultimedia(archivo, tipo === 'videos' ? 'video' : 'audio');
+                if (duracion > MAX_MEDIA_SECONDS) {
+                    mostrarAlerta('Archivo no permitido', `El ${tipo === 'videos' ? 'video' : 'audio'} supera 5 minutos`, 'warning');
+                    input.value = '';
+                    return;
+                }
+            } catch (_) {
+                mostrarAlerta('Error', 'No se pudo leer la duracion del archivo multimedia', 'error');
+                input.value = '';
+                return;
+            }
+        }
+
+        await procesarAdjunto(tipo, archivo);
+        input.value = '';
+    });
+});
+
+if (micToggle) {
+    micToggle.addEventListener('click', toggleGrabacionAudio);
+}
+
+// ------------------------------------------------------------
+// Cargar usuarios para sidebar
+// ------------------------------------------------------------
 async function cargarUsuarios() {
     try {
         const { res, data } = await requestData('api/get_users.php');
@@ -270,11 +583,14 @@ async function cargarUsuarios() {
             li.appendChild(btn);
             usersList.appendChild(li);
         });
-    } catch (error) {
+    } catch (_) {
         mostrarAlerta('Error de conexion', 'No se pudo conectar con el servidor', 'error');
     }
 }
 
+// ------------------------------------------------------------
+// Seleccion de usuario destino
+// ------------------------------------------------------------
 async function seleccionarUsuario(user, buttonRef) {
     destinatarioSeleccionado = Number(user.id);
     usuarioChatActual = user;
@@ -284,13 +600,18 @@ async function seleccionarUsuario(user, buttonRef) {
     document.querySelectorAll('#users-list button').forEach((btn) => btn.classList.remove('active'));
     buttonRef.classList.add('active');
 
-    await cargarMensajes();
+    await cargarMensajes(true);
+
     if (autoRefresh) clearInterval(autoRefresh);
-    autoRefresh = setInterval(cargarMensajes, 3000);
+    autoRefresh = setInterval(() => cargarMensajes(false), 3000);
 }
 
-async function cargarMensajes() {
+// ------------------------------------------------------------
+// Renderizado de mensajes del chat
+// ------------------------------------------------------------
+async function cargarMensajes(force = false) {
     if (!destinatarioSeleccionado) return;
+    if (!force && hayMediaReproduciendo()) return;
 
     try {
         const { res, data } = await requestData(`api/get_messages.php?destinatario_id=${destinatarioSeleccionado}`);
@@ -309,21 +630,63 @@ async function cargarMensajes() {
 
             const bubble = document.createElement('div');
             bubble.className = 'bubble ' + (esMio ? 'me' : 'other');
-            bubble.dataset.messageId = String(msg.id);
 
             const text = document.createElement('div');
             text.className = 'bubble-text';
-            text.textContent = msg.contenido;
+
+            // Si es adjunto, mostrar visual segun tipo
+            const adjunto = parseAttachmentMessage(msg.contenido);
+            if (adjunto) {
+                if (adjunto.tipo === 'imagenes') {
+                    const img = document.createElement('img');
+                    img.className = 'attachment-image';
+                    img.src = adjunto.ruta;
+                    img.alt = adjunto.nombre;
+                    img.loading = 'lazy';
+                    img.addEventListener('click', (e) => e.stopPropagation());
+                    text.appendChild(img);
+                } else if (adjunto.tipo === 'videos') {
+                    const video = document.createElement('video');
+                    video.className = 'attachment-video';
+                    video.src = adjunto.ruta;
+                    video.controls = true;
+                    video.preload = 'metadata';
+                    video.addEventListener('click', (e) => e.stopPropagation());
+                    text.appendChild(video);
+                } else if (adjunto.tipo === 'audios') {
+                    const audio = document.createElement('audio');
+                    audio.className = 'attachment-audio';
+                    audio.src = adjunto.ruta;
+                    audio.controls = true;
+                    audio.preload = 'metadata';
+                    audio.addEventListener('click', (e) => e.stopPropagation());
+                    text.appendChild(audio);
+                } else {
+                    const link = document.createElement('a');
+                    link.className = 'attachment-link';
+                    link.href = adjunto.ruta;
+                    link.target = '_blank';
+                    link.rel = 'noopener noreferrer';
+                    link.textContent = `[${adjunto.tipo}] ${adjunto.nombre}`;
+                    link.addEventListener('click', (e) => e.stopPropagation());
+                    text.appendChild(link);
+                }
+            } else {
+                text.textContent = msg.contenido;
+            }
+
             bubble.appendChild(text);
 
+            // Check de visto solo para mensajes propios ya vistos
             if (esMio && fueVisto) {
                 const estado = document.createElement('div');
                 estado.className = 'message-status seen';
-                estado.textContent = '✓✓';
+                estado.textContent = '\u2713\u2713';
                 estado.title = msg.visto_en ? `Visto: ${formatearFechaHora(msg.visto_en)}` : 'Visto';
                 bubble.appendChild(estado);
             }
 
+            // Click en mensaje para ver hora flotante
             bubble.addEventListener('click', (e) => {
                 e.stopPropagation();
                 mostrarHoraFlotante(bubble, msg.enviado_en);
@@ -331,46 +694,74 @@ async function cargarMensajes() {
 
             row.appendChild(bubble);
 
-            if (esMio && !fueVisto) {
+            // Menu de opciones:
+            // - Propio no visto: solo eliminar
+            // - Recibido con adjunto: descargar
+            if ((esMio && !fueVisto) || (!esMio && adjunto)) {
                 const menuWrap = document.createElement('div');
                 menuWrap.className = 'message-menu-wrap';
 
                 const trigger = document.createElement('button');
                 trigger.type = 'button';
                 trigger.className = 'message-menu-trigger';
-                trigger.textContent = '⋯';
+                trigger.textContent = '\u22ef';
                 trigger.title = 'Opciones';
 
                 const menu = document.createElement('div');
                 menu.className = 'message-menu';
 
-                const editBtn = document.createElement('button');
-                editBtn.type = 'button';
-                editBtn.className = 'message-menu-item';
-                editBtn.textContent = 'Editar';
-                editBtn.addEventListener('click', async (e) => {
-                    e.stopPropagation();
-                    try {
-                        await editarMensaje(msg);
-                        await cargarMensajes();
-                    } catch (error) {
-                        mostrarAlerta('Error', error.message, 'error');
+                if (esMio && !fueVisto) {
+                    // Editar solo para mensajes de texto normal (sin adjunto)
+                    if (!adjunto) {
+                        const editBtn = document.createElement('button');
+                        editBtn.type = 'button';
+                        editBtn.className = 'message-menu-item';
+                        editBtn.textContent = 'Editar';
+                        editBtn.addEventListener('click', async (e) => {
+                            e.stopPropagation();
+                            try {
+                                await editarMensaje(msg);
+                                await cargarMensajes(true);
+                            } catch (error) {
+                                mostrarAlerta('Error', error.message, 'error');
+                            }
+                        });
+                        menu.appendChild(editBtn);
                     }
-                });
 
-                const deleteBtn = document.createElement('button');
-                deleteBtn.type = 'button';
-                deleteBtn.className = 'message-menu-item delete';
-                deleteBtn.textContent = 'Eliminar';
-                deleteBtn.addEventListener('click', async (e) => {
-                    e.stopPropagation();
-                    try {
-                        await eliminarMensaje(msg);
-                        await cargarMensajes();
-                    } catch (error) {
-                        mostrarAlerta('Error', error.message, 'error');
-                    }
-                });
+                    const deleteBtn = document.createElement('button');
+                    deleteBtn.type = 'button';
+                    deleteBtn.className = 'message-menu-item delete';
+                    deleteBtn.textContent = 'Eliminar';
+                    deleteBtn.addEventListener('click', async (e) => {
+                        e.stopPropagation();
+                        try {
+                            await eliminarMensaje(msg);
+                            await cargarMensajes(true);
+                        } catch (error) {
+                            mostrarAlerta('Error', error.message, 'error');
+                        }
+                    });
+                    menu.appendChild(deleteBtn);
+                }
+
+                if (!esMio && adjunto) {
+                    const downloadBtn = document.createElement('button');
+                    downloadBtn.type = 'button';
+                    downloadBtn.className = 'message-menu-item download';
+                    downloadBtn.textContent = 'Descargar';
+                    downloadBtn.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        const a = document.createElement('a');
+                        a.href = adjunto.ruta;
+                        a.download = adjunto.nombre || 'archivo';
+                        document.body.appendChild(a);
+                        a.click();
+                        a.remove();
+                        cerrarMenusMensaje();
+                    });
+                    menu.appendChild(downloadBtn);
+                }
 
                 trigger.addEventListener('click', (e) => {
                     e.stopPropagation();
@@ -379,8 +770,6 @@ async function cargarMensajes() {
                     if (!visible) menu.classList.add('visible');
                 });
 
-                menu.appendChild(editBtn);
-                menu.appendChild(deleteBtn);
                 menuWrap.appendChild(trigger);
                 menuWrap.appendChild(menu);
                 row.appendChild(menuWrap);
@@ -389,12 +778,18 @@ async function cargarMensajes() {
             messagesWrap.appendChild(row);
         });
 
-        messagesWrap.scrollTop = messagesWrap.scrollHeight;
-    } catch (error) {
+        // Scroll al final del contenedor si no hay reproduccion activa
+        if (!hayMediaReproduciendo()) {
+            messagesWrap.scrollTop = messagesWrap.scrollHeight;
+        }
+    } catch (_) {
         mostrarAlerta('Error de conexion', 'No se pudo conectar con el servidor', 'error');
     }
 }
 
+// ------------------------------------------------------------
+// Envio del formulario principal de texto
+// ------------------------------------------------------------
 sendForm.addEventListener('submit', async (e) => {
     e.preventDefault();
 
@@ -409,26 +804,20 @@ sendForm.addEventListener('submit', async (e) => {
         return;
     }
 
-    const formData = new FormData();
-    formData.append('destinatario_id', String(destinatarioSeleccionado));
-    formData.append('contenido', texto);
-
     try {
-        const { res, data } = await requestData('api/send_message.php', { method: 'POST', body: formData });
-        if (!res.ok || !data.ok) {
-            mostrarAlerta('Error', data.mensaje || 'No se pudo enviar el mensaje', 'error');
-            return;
-        }
-
+        await enviarTexto(texto);
         contenido.value = '';
         chatMessage.textContent = '';
         if (emojiPanel) emojiPanel.classList.remove('visible');
-        await cargarMensajes();
+        await cargarMensajes(true);
     } catch (error) {
-        mostrarAlerta('Error de conexion', 'No se pudo conectar con el servidor', 'error');
+        mostrarAlerta('Error', error.message, 'error');
     }
 });
 
+// ------------------------------------------------------------
+// Cambio de foto de perfil
+// ------------------------------------------------------------
 profileFile.addEventListener('change', async () => {
     const archivo = profileFile.files && profileFile.files[0] ? profileFile.files[0] : null;
     if (!archivo) return;
@@ -444,5 +833,8 @@ profileFile.addEventListener('change', async () => {
     }
 });
 
+// ------------------------------------------------------------
+// Inicio de la app del chat
+// ------------------------------------------------------------
 cargarPerfil();
 cargarUsuarios();

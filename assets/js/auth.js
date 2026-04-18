@@ -1,8 +1,14 @@
+// ============================================================
+// Script de acceso (login y registro)
+// ============================================================
+
+// Referencias de UI
 const tabs = document.querySelectorAll('.tab-button');
 const formLogin = document.getElementById('form-login');
 const formRegister = document.getElementById('form-register');
 const messageEl = document.getElementById('auth-message');
 
+// Mostrar alertas con SweetAlert2 (fallback a alert nativo)
 function mostrarAlerta(titulo, texto, icono = 'info') {
     if (window.Swal && typeof window.Swal.fire === 'function') {
         window.Swal.fire({ title: titulo, text: texto, icon: icono, confirmButtonText: 'Aceptar' });
@@ -11,6 +17,7 @@ function mostrarAlerta(titulo, texto, icono = 'info') {
     alert(`${titulo}: ${texto}`);
 }
 
+// Realizar request y normalizar respuesta JSON
 async function requestData(url, options = {}) {
     const res = await fetch(url, options);
     const raw = await res.text();
@@ -23,6 +30,7 @@ async function requestData(url, options = {}) {
     return { res, data };
 }
 
+// Limpiar formularios al entrar o volver a la pagina
 function limpiarFormularios() {
     formLogin.reset();
     formRegister.reset();
@@ -31,10 +39,10 @@ function limpiarFormularios() {
     });
     if (messageEl) messageEl.textContent = '';
 }
-
 window.addEventListener('load', limpiarFormularios);
 window.addEventListener('pageshow', limpiarFormularios);
 
+// Cambiar entre pestañas login/registro
 tabs.forEach((btn) => {
     btn.addEventListener('click', () => {
         tabs.forEach((b) => b.classList.remove('active'));
@@ -46,6 +54,7 @@ tabs.forEach((btn) => {
     });
 });
 
+// Envio de login
 formLogin.addEventListener('submit', async (e) => {
     e.preventDefault();
     const formData = new FormData(formLogin);
@@ -62,6 +71,7 @@ formLogin.addEventListener('submit', async (e) => {
     }
 });
 
+// Envio de registro
 formRegister.addEventListener('submit', async (e) => {
     e.preventDefault();
     const formData = new FormData(formRegister);

@@ -1,4 +1,7 @@
 <?php
+// ------------------------------------------------------------
+// API: Enviar mensaje de texto
+// ------------------------------------------------------------
 session_start();
 header('Content-Type: application/json; charset=utf-8');
 
@@ -25,13 +28,13 @@ if ($destinatarioId <= 0 || $contenido === '') {
     echo json_encode(['ok' => false, 'mensaje' => 'Destinatario y mensaje son obligatorios']);
     exit;
 }
-
 if ($destinatarioId === $remitenteId) {
     http_response_code(422);
     echo json_encode(['ok' => false, 'mensaje' => 'No puedes enviarte mensajes a ti mismo']);
     exit;
 }
 
+// Verificar que destinatario exista
 $checkUser = $conn->prepare('SELECT id FROM usuario WHERE id = ? LIMIT 1');
 if (!$checkUser) {
     http_response_code(500);
@@ -39,7 +42,6 @@ if (!$checkUser) {
     $conn->close();
     exit;
 }
-
 $checkUser->bind_param('i', $destinatarioId);
 if (!$checkUser->execute()) {
     http_response_code(500);
@@ -48,7 +50,6 @@ if (!$checkUser->execute()) {
     $conn->close();
     exit;
 }
-
 $existe = $checkUser->get_result()->fetch_assoc();
 $checkUser->close();
 
@@ -59,6 +60,7 @@ if (!$existe) {
     exit;
 }
 
+// Guardar mensaje
 $stmt = $conn->prepare('INSERT INTO mensaje (remitente_id, destinatario_id, contenido) VALUES (?, ?, ?)');
 if (!$stmt) {
     http_response_code(500);
@@ -66,7 +68,6 @@ if (!$stmt) {
     $conn->close();
     exit;
 }
-
 $stmt->bind_param('iis', $remitenteId, $destinatarioId, $contenido);
 if (!$stmt->execute()) {
     http_response_code(500);

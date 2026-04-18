@@ -1,4 +1,7 @@
 <?php
+// ------------------------------------------------------------
+// API: Eliminar mensaje propio (solo si no esta visto)
+// ------------------------------------------------------------
 session_start();
 header('Content-Type: application/json; charset=utf-8');
 
@@ -7,7 +10,6 @@ if (!isset($_SESSION['usuario_id'])) {
     echo json_encode(['ok' => false, 'mensaje' => 'No autorizado']);
     exit;
 }
-
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     http_response_code(405);
     echo json_encode(['ok' => false, 'mensaje' => 'Metodo no permitido']);
@@ -15,7 +17,6 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 }
 
 require_once __DIR__ . '/../conexion.php';
-
 $usuarioId = (int) $_SESSION['usuario_id'];
 $mensajeId = (int) ($_POST['mensaje_id'] ?? 0);
 
@@ -37,6 +38,7 @@ if ($mensajeId <= 0) {
     exit;
 }
 
+// Leer estado del mensaje
 $check = $conn->prepare('SELECT remitente_id, visto FROM mensaje WHERE id = ? LIMIT 1');
 if (!$check) {
     http_response_code(500);
@@ -44,7 +46,6 @@ if (!$check) {
     $conn->close();
     exit;
 }
-
 $check->bind_param('i', $mensajeId);
 if (!$check->execute()) {
     http_response_code(500);
@@ -53,7 +54,6 @@ if (!$check->execute()) {
     $conn->close();
     exit;
 }
-
 $actual = $check->get_result()->fetch_assoc();
 $check->close();
 
@@ -63,14 +63,12 @@ if (!$actual) {
     $conn->close();
     exit;
 }
-
 if ((int) $actual['remitente_id'] !== $usuarioId) {
     http_response_code(403);
     echo json_encode(['ok' => false, 'mensaje' => 'Solo puedes eliminar tus propios mensajes']);
     $conn->close();
     exit;
 }
-
 if ((int) $actual['visto'] === 1) {
     http_response_code(409);
     echo json_encode(['ok' => false, 'mensaje' => 'No puedes eliminar un mensaje que ya fue visto']);
@@ -78,6 +76,7 @@ if ((int) $actual['visto'] === 1) {
     exit;
 }
 
+// Ejecutar eliminacion
 $stmt = $conn->prepare('DELETE FROM mensaje WHERE id = ? AND remitente_id = ? AND visto = 0');
 if (!$stmt) {
     http_response_code(500);
@@ -85,7 +84,6 @@ if (!$stmt) {
     $conn->close();
     exit;
 }
-
 $stmt->bind_param('ii', $mensajeId, $usuarioId);
 if (!$stmt->execute()) {
     http_response_code(500);
@@ -94,7 +92,6 @@ if (!$stmt->execute()) {
     $conn->close();
     exit;
 }
-
 if ($stmt->affected_rows === 0) {
     http_response_code(409);
     echo json_encode(['ok' => false, 'mensaje' => 'No se pudo eliminar: el mensaje ya fue visto']);
