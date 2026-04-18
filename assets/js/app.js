@@ -45,7 +45,9 @@ let mediaRecorder = null;
 let audioChunks = [];
 let isRecordingAudio = false;
 let audioStopTimer = null;
+let audioAlertaProximidad = false;
 const MAX_MEDIA_SECONDS = 300;
+const SEGUNDOS_ALERTA_ANTICIPADA = 30;
 const MAX_SIZE_BYTES = {
     imagenes: 8 * 1024 * 1024,
     videos: 120 * 1024 * 1024,
@@ -113,7 +115,10 @@ function mostrarHoraFlotante(elemento, fechaSQL) {
 }
 
 function cerrarMenusMensaje() {
-    document.querySelectorAll('.message-menu').forEach((menu) => menu.classList.remove('visible'));
+    document.querySelectorAll('.message-menu').forEach((menu) => {
+        menu.classList.remove('visible', 'above', 'below');
+        menu.style.left = ''; // Limpiar posicion horizontal
+    });
 }
 
 function abrirAvatarFlotante(usuario) {
@@ -317,6 +322,7 @@ async function toggleGrabacionAudio() {
     if (isRecordingAudio && mediaRecorder) {
         mediaRecorder.stop();
         isRecordingAudio = false;
+        audioAlertaProximidad = false;
         micToggle.classList.remove('recording');
         micToggle.textContent = String.fromCodePoint(0x1F3A4);
         return;
@@ -368,22 +374,31 @@ async function toggleGrabacionAudio() {
 
         mediaRecorder.start(1000);
         isRecordingAudio = true;
+        audioAlertaProximidad = false;
         micToggle.classList.add('recording');
         micToggle.textContent = 'Stop';
 
+        // Alerta cuando falten 30 segundos para llegar al limite
+        setTimeout(() => {
+            if (isRecordingAudio && !audioAlertaProximidad && mediaRecorder && mediaRecorder.state === 'recording') {
+                audioAlertaProximidad = true;
+                mostrarAlerta('Limite alcanzado', 'El audio se detendra en 30 segundos', 'warning');
+            }
+        }, (MAX_MEDIA_SECONDS - SEGUNDOS_ALERTA_ANTICIPADA) * 1000);
+
+        // Detener al alcanzar el limite maximo
         audioStopTimer = setTimeout(() => {
             if (isRecordingAudio && mediaRecorder && mediaRecorder.state === 'recording') {
                 mediaRecorder.stop();
                 isRecordingAudio = false;
+                audioAlertaProximidad = false;
                 micToggle.classList.remove('recording');
                 micToggle.textContent = String.fromCodePoint(0x1F3A4);
                 mostrarAlerta('Limite alcanzado', 'El audio se detuvo al llegar a 5 minutos', 'info');
             }
         }, MAX_MEDIA_SECONDS * 1000);
-
-        mostrarAlerta('Grabando', 'Presiona nuevamente el microfono para detener y enviar (maximo 5 minutos)', 'info');
-    } catch (_) {
-        mostrarAlerta('Error', 'No se pudo iniciar la grabacion de audio', 'error');
+    } catch (error) {
+        mostrarAlerta('Error', error.message || 'No se pudo iniciar la grabacion de audio', 'error');
     }
 }
 
@@ -486,8 +501,10 @@ if (attachToggle && attachMenu) {
     attachToggle.addEventListener('click', (e) => {
         e.stopPropagation();
         const rect = attachToggle.getBoundingClientRect();
+        const menuHeight = attachMenu.offsetHeight || 180;
+        const topPosition = Math.max(12, rect.top - menuHeight - 8);
         attachMenu.style.left = `${Math.max(12, rect.left)}px`;
-        attachMenu.style.top = `${rect.bottom + 8}px`;
+        attachMenu.style.top = `${topPosition}px`;
         attachMenu.classList.toggle('visible');
     });
 }
@@ -620,6 +637,8 @@ async function cargarMensajes(force = false) {
             return;
         }
 
+        const wasAtBottom = messagesWrap.scrollHeight - messagesWrap.scrollTop - messagesWrap.clientHeight < 50;
+        const previousScrollTop = messagesWrap.scrollTop;
         messagesWrap.innerHTML = '';
 
         data.mensajes.forEach((msg) => {
@@ -767,7 +786,41 @@ async function cargarMensajes(force = false) {
                     e.stopPropagation();
                     const visible = menu.classList.contains('visible');
                     cerrarMenusMensaje();
-                    if (!visible) menu.classList.add('visible');
+                    if (!visible) {
+                        // Calcular posicionamiento dinamico del menu
+                        const triggerRect = trigger.getBoundingClientRect();
+                        const messagesRect = messagesWrap.getBoundingClientRect();
+
+                        // Calcular altura aproximada del menu basada en elementos
+                        const menuItems = menu.querySelectorAll('.message-menu-item');
+                        const menuHeight = (menuItems.length * 32) + 12 + 12; // items * altura + padding top/bottom
+
+                        // Espacio disponible arriba y abajo del trigger
+                        const spaceAbove = triggerRect.top - messagesRect.top;
+                        const spaceBelow = messagesRect.bottom - triggerRect.bottom;
+
+                        // Determinar si mostrar arriba o abajo
+                        let showAbove = false;
+                        if (spaceBelow >= menuHeight + 10) {
+                            // Hay espacio suficiente abajo
+                            showAbove = false;
+                        } else if (spaceAbove >= menuHeight + 10) {
+                            // Hay espacio suficiente arriba
+                            showAbove = true;
+                        } else {
+                            // No hay espacio suficiente en ninguno, preferir abajo si es posible
+                            showAbove = spaceAbove < spaceBelow;
+                        }
+
+                        // Aplicar clase de posicionamiento
+                        menu.classList.remove('above', 'below');
+                        menu.classList.add(showAbove ? 'above' : 'below');
+
+                        // Ajustar posicion horizontal usando el anclaje por defecto del CSS
+                        menu.style.left = '';
+                        menu.style.right = '0px';
+                        menu.classList.add('visible');
+                    }
                 });
 
                 menuWrap.appendChild(trigger);
@@ -778,9 +831,13 @@ async function cargarMensajes(force = false) {
             messagesWrap.appendChild(row);
         });
 
-        // Scroll al final del contenedor si no hay reproduccion activa
+        // Mantener posicion si el usuario no estaba abajo; mover abajo solo si antes ya estaba en el final
         if (!hayMediaReproduciendo()) {
-            messagesWrap.scrollTop = messagesWrap.scrollHeight;
+            if (wasAtBottom) {
+                messagesWrap.scrollTop = messagesWrap.scrollHeight;
+            } else {
+                messagesWrap.scrollTop = previousScrollTop;
+            }
         }
     } catch (_) {
         mostrarAlerta('Error de conexion', 'No se pudo conectar con el servidor', 'error');
