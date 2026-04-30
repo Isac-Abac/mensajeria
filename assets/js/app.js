@@ -25,6 +25,23 @@ const emojiPicker = document.getElementById('emoji-picker');
 const attachToggle = document.getElementById('attach-toggle');
 const attachMenu = document.getElementById('attach-menu');
 const micToggle = document.getElementById('mic-toggle');
+const topbarNavButtons = document.querySelectorAll('[data-view-target]');
+const appViews = {
+    inicio: document.getElementById('inicio-view'),
+    amigos: document.getElementById('amigos-view'),
+    chat: document.getElementById('chat-view')
+};
+const publicationForm = document.getElementById('publication-form');
+const publicationText = document.getElementById('publication-text');
+const publicationFile = document.getElementById('publication-file');
+const feedList = document.getElementById('feed-list');
+const refreshFeed = document.getElementById('refresh-feed');
+const friendForm = document.getElementById('friend-form');
+const friendUsername = document.getElementById('friend-username');
+const friendsList = document.getElementById('friends-list');
+const refreshFriends = document.getElementById('refresh-friends');
+const requestsList = document.getElementById('requests-list');
+const refreshRequests = document.getElementById('refresh-requests');
 
 // Inputs ocultos por tipo de adjunto
 const fileInputs = {
@@ -96,6 +113,38 @@ function formatearFechaHora(fechaSQL) {
 function resolverAvatar(ruta, bustCache = false) {
     if (!ruta) return AVATAR_POR_DEFECTO;
     return bustCache ? `${ruta}?v=${Date.now()}` : ruta;
+}
+
+// ------------------------------------------------------------
+// Navegacion entre secciones
+// ------------------------------------------------------------
+function activarVista(nombreVista) {
+    Object.entries(appViews).forEach(([nombre, vista]) => {
+        if (!vista) return;
+        vista.classList.toggle('active', nombre === nombreVista);
+    });
+
+    topbarNavButtons.forEach((btn) => {
+        btn.classList.toggle('active', btn.dataset.viewTarget === nombreVista);
+    });
+
+    if (nombreVista === 'chat' && destinatarioSeleccionado) {
+        cargarMensajes(true);
+    }
+
+    if (nombreVista === 'inicio') {
+        cargarPublicaciones();
+    }
+
+    if (nombreVista === 'amigos') {
+        cargarSolicitudes();
+        cargarAmigos();
+    }
+}
+
+function obtenerUsuarioEnlacePorNombre(nombre) {
+    return Array.from(document.querySelectorAll('#users-list .user-item-btn'))
+        .find((button) => button.textContent.includes(nombre));
 }
 
 // ------------------------------------------------------------
@@ -263,6 +312,291 @@ async function subirFotoPerfil(archivo) {
             renderHeaderChat(usuarioChatActual);
         }
     }
+}
+
+// ------------------------------------------------------------
+// Publicaciones tipo Instagram
+// ------------------------------------------------------------
+async function cargarPublicaciones() {
+    if (!feedList) return;
+
+    try {
+        const { res, data } = await requestData('api/get_publications.php');
+        if (!res.ok || !data.ok) {
+            feedList.innerHTML = '<p class="message">No se pudieron cargar las publicaciones.</p>';
+            return;
+        }
+
+        feedList.innerHTML = '';
+        if (!data.publicaciones.length) {
+            feedList.innerHTML = '<p class="message">Todavia no hay publicaciones.</p>';
+            return;
+        }
+
+        data.publicaciones.forEach((pub) => {
+            const item = document.createElement('article');
+            item.className = 'publication-item';
+
+            const meta = document.createElement('div');
+            meta.className = 'publication-meta';
+
+            const author = document.createElement('span');
+            author.className = 'publication-author';
+            author.textContent = '@' + pub.nombre_usuario;
+
+            const date = document.createElement('span');
+            date.textContent = formatearFechaHora(pub.creado_en);
+
+            meta.appendChild(author);
+            meta.appendChild(date);
+            item.appendChild(meta);
+
+            if (pub.texto) {
+                const text = document.createElement('div');
+                text.className = 'publication-text';
+                text.textContent = pub.texto;
+                item.appendChild(text);
+            }
+
+            if (pub.medio_ruta) {
+                if (pub.medio_tipo === 'imagen') {
+                    const img = document.createElement('img');
+                    img.className = 'publication-media';
+                    img.src = pub.medio_ruta;
+                    img.alt = 'Publicacion de ' + pub.nombre_usuario;
+                    item.appendChild(img);
+                } else if (pub.medio_tipo === 'video') {
+                    const video = document.createElement('video');
+                    video.className = 'publication-media';
+                    video.src = pub.medio_ruta;
+                    video.controls = true;
+                    video.preload = 'metadata';
+                    item.appendChild(video);
+                }
+            }
+
+            feedList.appendChild(item);
+        });
+    } catch (_) {
+        feedList.innerHTML = '<p class="message">Error al cargar publicaciones.</p>';
+    }
+}
+
+async function cargarSolicitudes() {
+    if (!requestsList) return;
+
+    try {
+        const { res, data } = await requestData('api/get_friend_requests.php');
+        if (!res.ok || !data.ok) {
+            requestsList.innerHTML = '<p class="message">No se pudieron cargar las solicitudes.</p>';
+            return;
+        }
+
+        requestsList.innerHTML = '';
+        if (!data.solicitudes.length) {
+            requestsList.innerHTML = '<p class="message">No tienes solicitudes pendientes.</p>';
+            return;
+        }
+
+        data.solicitudes.forEach((solicitud) => {
+            const item = document.createElement('article');
+            item.className = 'friend-item';
+
+            const meta = document.createElement('div');
+            meta.className = 'friend-meta';
+
+            const name = document.createElement('span');
+            name.className = 'friend-name';
+            name.textContent = '@' + solicitud.nombre_usuario;
+
+            const fecha = document.createElement('span');
+            fecha.textContent = formatearFechaHora(solicitud.creado_en);
+
+            meta.appendChild(name);
+            meta.appendChild(fecha);
+            item.appendChild(meta);
+
+            const actions = document.createElement('div');
+            actions.className = 'friend-actions';
+
+            const acceptBtn = document.createElement('button');
+            acceptBtn.type = 'button';
+            acceptBtn.textContent = 'Aceptar';
+            acceptBtn.addEventListener('click', async () => {
+                try {
+                    const formData = new FormData();
+                    formData.append('solicitud_id', String(solicitud.id));
+                    formData.append('accion', 'aceptar');
+                    const { res: resAccept, data: dataAccept } = await requestData('api/respond_friend_request.php', {
+                        method: 'POST',
+                        body: formData
+                    });
+                    if (!resAccept.ok || !dataAccept.ok) throw new Error(dataAccept.mensaje || 'No se pudo aceptar');
+                    mostrarAlerta('Listo', 'Solicitud aceptada', 'success');
+                    await cargarSolicitudes();
+                    await cargarAmigos();
+                    await cargarUsuarios();
+                } catch (error) {
+                    mostrarAlerta('Error', error.message, 'error');
+                }
+            });
+
+            const rejectBtn = document.createElement('button');
+            rejectBtn.type = 'button';
+            rejectBtn.className = 'message-menu-item delete';
+            rejectBtn.textContent = 'Eliminar';
+            rejectBtn.addEventListener('click', async () => {
+                try {
+                    const formData = new FormData();
+                    formData.append('solicitud_id', String(solicitud.id));
+                    formData.append('accion', 'rechazar');
+                    const { res: resReject, data: dataReject } = await requestData('api/respond_friend_request.php', {
+                        method: 'POST',
+                        body: formData
+                    });
+                    if (!resReject.ok || !dataReject.ok) throw new Error(dataReject.mensaje || 'No se pudo eliminar');
+                    mostrarAlerta('Listo', 'Solicitud eliminada', 'success');
+                    await cargarSolicitudes();
+                } catch (error) {
+                    mostrarAlerta('Error', error.message, 'error');
+                }
+            });
+
+            actions.appendChild(acceptBtn);
+            actions.appendChild(rejectBtn);
+            item.appendChild(actions);
+            requestsList.appendChild(item);
+        });
+    } catch (_) {
+        requestsList.innerHTML = '<p class="message">Error al cargar solicitudes.</p>';
+    }
+}
+
+async function crearPublicacion() {
+    if (!publicationForm) return;
+
+    const texto = publicationText ? publicationText.value.trim() : '';
+    const archivo = publicationFile && publicationFile.files && publicationFile.files[0] ? publicationFile.files[0] : null;
+
+    if (!texto && !archivo) {
+        mostrarAlerta('Atencion', 'Escribe texto o adjunta una imagen/video', 'warning');
+        return;
+    }
+
+    if (archivo) {
+        if (archivo.size > MAX_SIZE_BYTES.imagenes && archivo.type.startsWith('image/')) {
+            mostrarAlerta('Archivo no permitido', 'La imagen supera el limite permitido', 'warning');
+            return;
+        }
+
+        if (archivo.size > MAX_SIZE_BYTES.videos && archivo.type.startsWith('video/')) {
+            mostrarAlerta('Archivo no permitido', 'El video supera el limite permitido', 'warning');
+            return;
+        }
+
+        if (archivo.type.startsWith('video/')) {
+            try {
+                const duracion = await obtenerDuracionMultimedia(archivo, 'video');
+                if (duracion > MAX_MEDIA_SECONDS) {
+                    mostrarAlerta('Archivo no permitido', 'El video supera 5 minutos', 'warning');
+                    return;
+                }
+            } catch (_) {
+                mostrarAlerta('Error', 'No se pudo leer la duracion del video', 'error');
+                return;
+            }
+        }
+    }
+
+    const formData = new FormData();
+    formData.append('texto', texto);
+    if (archivo) {
+        formData.append('medio', archivo);
+    }
+
+    const { res, data } = await requestData('api/create_publication.php', {
+        method: 'POST',
+        body: formData
+    });
+
+    if (!res.ok || !data.ok) throw new Error(data.mensaje || 'No se pudo publicar');
+
+    if (publicationText) publicationText.value = '';
+    if (publicationFile) publicationFile.value = '';
+    await cargarPublicaciones();
+}
+
+// ------------------------------------------------------------
+// Amigos
+// ------------------------------------------------------------
+async function cargarAmigos() {
+    if (!friendsList) return;
+
+    try {
+        const { res, data } = await requestData('api/get_friends.php');
+        if (!res.ok || !data.ok) {
+            friendsList.innerHTML = '<p class="message">No se pudieron cargar tus amigos.</p>';
+            return;
+        }
+
+        friendsList.innerHTML = '';
+        if (!data.amigos.length) {
+            friendsList.innerHTML = '<p class="message">Aun no tienes amigos agregados.</p>';
+            return;
+        }
+
+        data.amigos.forEach((amigo) => {
+            const item = document.createElement('article');
+            item.className = 'friend-item';
+
+            const meta = document.createElement('div');
+            meta.className = 'friend-meta';
+
+            const name = document.createElement('span');
+            name.className = 'friend-name';
+            name.textContent = '@' + amigo.nombre_usuario;
+
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'theme-toggle';
+            btn.textContent = 'Abrir chat';
+            btn.addEventListener('click', async () => {
+                const target = obtenerUsuarioEnlacePorNombre(amigo.nombre_usuario);
+                if (target) {
+                    target.click();
+                    activarVista('chat');
+                }
+            });
+
+            meta.appendChild(name);
+            meta.appendChild(btn);
+            item.appendChild(meta);
+            friendsList.appendChild(item);
+        });
+    } catch (_) {
+        friendsList.innerHTML = '<p class="message">Error al cargar amigos.</p>';
+    }
+}
+
+async function agregarAmigo() {
+    const nombre = friendUsername ? friendUsername.value.trim() : '';
+    if (!nombre) {
+        mostrarAlerta('Atencion', 'Escribe un nombre de usuario', 'warning');
+        return;
+    }
+
+    const formData = new FormData();
+    formData.append('nombre_usuario', nombre);
+
+    const { res, data } = await requestData('api/add_friend.php', {
+        method: 'POST',
+        body: formData
+    });
+
+    if (!res.ok || !data.ok) throw new Error(data.mensaje || 'No se pudo enviar la solicitud');
+
+    friendUsername.value = '';
+    await cargarSolicitudes();
 }
 
 // ------------------------------------------------------------
@@ -558,24 +892,59 @@ if (micToggle) {
     micToggle.addEventListener('click', toggleGrabacionAudio);
 }
 
+topbarNavButtons.forEach((btn) => {
+    btn.addEventListener('click', () => {
+        activarVista(btn.dataset.viewTarget);
+    });
+});
+
+if (publicationForm) {
+    publicationForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        try {
+            await crearPublicacion();
+            mostrarAlerta('Listo', 'Tu publicacion fue creada', 'success');
+        } catch (error) {
+            mostrarAlerta('Error', error.message, 'error');
+        }
+    });
+}
+
+if (refreshFeed) refreshFeed.addEventListener('click', cargarPublicaciones);
+
+if (friendForm) {
+    friendForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        try {
+            await agregarAmigo();
+            mostrarAlerta('Listo', 'Amigo agregado correctamente', 'success');
+        } catch (error) {
+            mostrarAlerta('Error', error.message, 'error');
+        }
+    });
+}
+
+if (refreshFriends) refreshFriends.addEventListener('click', cargarAmigos);
+if (refreshRequests) refreshRequests.addEventListener('click', cargarSolicitudes);
+
 // ------------------------------------------------------------
 // Cargar usuarios para sidebar
 // ------------------------------------------------------------
 async function cargarUsuarios() {
     try {
-        const { res, data } = await requestData('api/get_users.php');
+        const { res, data } = await requestData('api/get_friends.php');
         if (!res.ok || !data.ok) {
-            mostrarAlerta('Error', data.mensaje || 'No se pudieron cargar usuarios', 'error');
+            mostrarAlerta('Error', data.mensaje || 'No se pudieron cargar amigos', 'error');
             return;
         }
 
         usersList.innerHTML = '';
-        if (data.usuarios.length === 0) {
-            usersList.innerHTML = '<li>No hay otras cuentas registradas.</li>';
+        if (data.amigos.length === 0) {
+            usersList.innerHTML = '<li>No hay amigos agregados.</li>';
             return;
         }
 
-        data.usuarios.forEach((user) => {
+        data.amigos.forEach((user) => {
             const li = document.createElement('li');
             const btn = document.createElement('button');
             btn.type = 'button';
@@ -893,5 +1262,9 @@ profileFile.addEventListener('change', async () => {
 // ------------------------------------------------------------
 // Inicio de la app del chat
 // ------------------------------------------------------------
+activarVista('inicio');
 cargarPerfil();
 cargarUsuarios();
+cargarPublicaciones();
+cargarAmigos();
+cargarSolicitudes();

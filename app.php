@@ -43,6 +43,13 @@ $usuario = htmlspecialchars($_SESSION['nombre_usuario'], ENT_QUOTES, 'UTF-8');
             </div>
         </div>
 
+        <!-- Navegacion principal entre secciones -->
+        <nav class="topbar-nav" aria-label="Navegacion principal">
+            <button type="button" class="topbar-nav-btn" data-view-target="chat">Chat</button>
+            <button type="button" class="topbar-nav-btn active" data-view-target="inicio">Inicio</button>
+            <button type="button" class="topbar-nav-btn" data-view-target="amigos">Amigos</button>
+        </nav>
+
         <div class="topbar-actions">
             <label for="profile-file" class="theme-toggle profile-upload-btn">Cambiar foto</label>
             <input type="file" id="profile-file" accept="image/png,image/jpeg,image/webp,image/gif" hidden>
@@ -51,49 +58,112 @@ $usuario = htmlspecialchars($_SESSION['nombre_usuario'], ENT_QUOTES, 'UTF-8');
         </div>
     </header>
 
-    <!-- Layout: lista de usuarios + area de conversacion -->
-    <main class="chat-layout">
-        <aside class="users-panel">
-            <h2>Cuentas</h2>
-            <ul id="users-list"></ul>
-        </aside>
+    <!-- Contenido principal por secciones -->
+    <main class="app-shell">
+        <!-- Seccion Inicio: publicaciones -->
+        <section id="inicio-view" class="app-view active">
+            <div class="feed-layout">
+                <article class="feed-card">
+                    <h2>Publicaciones</h2>
+                    <p class="feed-subtitle">Comparte fotos, videos o texto al estilo Instagram.</p>
 
-        <section class="chat-panel">
-            <div id="chat-header" class="chat-header">
-                <span>Selecciona una cuenta para conversar</span>
+                    <form id="publication-form" class="publication-form" autocomplete="off">
+                        <textarea id="publication-text" placeholder="Escribe una publicacion..." rows="3"></textarea>
+                        <input type="file" id="publication-file" accept="image/*,video/*" hidden>
+                        <div class="publication-actions">
+                            <label for="publication-file" class="theme-toggle publication-file-btn">Adjuntar media</label>
+                            <button type="submit" class="publication-submit">Publicar</button>
+                        </div>
+                    </form>
+                </article>
+
+                <article class="feed-card">
+                    <div class="feed-card-head">
+                        <h3>Tu muro</h3>
+                        <button type="button" id="refresh-feed" class="theme-toggle">Actualizar</button>
+                    </div>
+                    <div id="feed-list" class="feed-list"></div>
+                </article>
             </div>
+        </section>
 
-            <div id="messages" class="messages"></div>
+        <!-- Seccion Amigos -->
+        <section id="amigos-view" class="app-view">
+            <div class="friends-layout">
+                <article class="friends-card">
+                    <h2>Amigos</h2>
+                    <p class="feed-subtitle">Envía solicitudes y revisa las que te llegan.</p>
 
-            <!-- Composer de mensaje -->
-            <form id="send-form" class="send-form" autocomplete="off">
-                <button type="button" id="attach-toggle" class="attach-toggle" title="Adjuntar">+</button>
-                <textarea id="contenido" placeholder="Escribe un mensaje..." required></textarea>
-                <button type="button" id="emoji-toggle" class="emoji-toggle" title="Emojis">&#128522;</button>
-                <button type="button" id="mic-toggle" class="mic-toggle" title="Grabar audio">&#127908;</button>
-                <button type="submit">Enviar</button>
-            </form>
+                    <form id="friend-form" class="friend-form" autocomplete="off">
+                        <input type="text" id="friend-username" placeholder="Nombre de usuario" required>
+                        <button type="submit">Agregar amigo</button>
+                    </form>
+                </article>
 
-            <!-- Menu de adjuntos -->
-            <div id="attach-menu" class="attach-menu">
-                <button type="button" class="attach-option" data-attach-type="imagenes">Imagenes</button>
-                <button type="button" class="attach-option" data-attach-type="videos">Videos</button>
-                <button type="button" class="attach-option" data-attach-type="documentos">Documentos</button>
-                <button type="button" class="attach-option" data-attach-type="audios">Audios</button>
+                <article class="friends-card">
+                    <div class="feed-card-head">
+                        <h3>Solicitudes de amistad</h3>
+                        <button type="button" id="refresh-requests" class="theme-toggle">Actualizar</button>
+                    </div>
+                    <div id="requests-list" class="friends-list"></div>
+                </article>
+
+                <article class="friends-card">
+                    <div class="feed-card-head">
+                        <h3>Mis amigos</h3>
+                        <button type="button" id="refresh-friends" class="theme-toggle">Actualizar</button>
+                    </div>
+                    <div id="friends-list" class="friends-list"></div>
+                </article>
             </div>
+        </section>
 
-            <!-- Inputs ocultos para carga de archivos -->
-            <input type="file" id="file-imagenes" accept="image/*" hidden>
-            <input type="file" id="file-videos" accept="video/*" hidden>
-            <input type="file" id="file-documentos" accept=".pdf,.doc,.docx,.txt,.xls,.xlsx,.ppt,.pptx,.zip,.rar" hidden>
-            <input type="file" id="file-audios" accept="audio/*" hidden>
+        <!-- Seccion Chat -->
+        <section id="chat-view" class="app-view">
+            <div class="chat-layout">
+                <aside class="users-panel">
+                    <h2>amigos en linea</h2>
+                    <ul id="users-list"></ul>
+                </aside>
 
-            <!-- Panel de emojis -->
-            <div id="emoji-panel" class="emoji-panel">
-                <emoji-picker id="emoji-picker" class="emoji-picker"></emoji-picker>
+                <section class="chat-panel">
+                    <div id="chat-header" class="chat-header">
+                        <span>Selecciona una cuenta para conversar</span>
+                    </div>
+
+                    <div id="messages" class="messages"></div>
+
+                    <!-- Composer de mensaje -->
+                    <form id="send-form" class="send-form" autocomplete="off">
+                        <button type="button" id="attach-toggle" class="attach-toggle" title="Adjuntar">+</button>
+                        <textarea id="contenido" placeholder="Escribe un mensaje..." required></textarea>
+                        <button type="button" id="emoji-toggle" class="emoji-toggle" title="Emojis">&#128522;</button>
+                        <button type="button" id="mic-toggle" class="mic-toggle" title="Grabar audio">&#127908;</button>
+                        <button type="submit">Enviar</button>
+                    </form>
+
+                    <!-- Menu de adjuntos -->
+                    <div id="attach-menu" class="attach-menu">
+                        <button type="button" class="attach-option" data-attach-type="imagenes">Imagenes</button>
+                        <button type="button" class="attach-option" data-attach-type="videos">Videos</button>
+                        <button type="button" class="attach-option" data-attach-type="documentos">Documentos</button>
+                        <button type="button" class="attach-option" data-attach-type="audios">Audios</button>
+                    </div>
+
+                    <!-- Inputs ocultos para carga de archivos -->
+                    <input type="file" id="file-imagenes" accept="image/*" hidden>
+                    <input type="file" id="file-videos" accept="video/*" hidden>
+                    <input type="file" id="file-documentos" accept=".pdf,.doc,.docx,.txt,.xls,.xlsx,.ppt,.pptx,.zip,.rar" hidden>
+                    <input type="file" id="file-audios" accept="audio/*" hidden>
+
+                    <!-- Panel de emojis -->
+                    <div id="emoji-panel" class="emoji-panel">
+                        <emoji-picker id="emoji-picker" class="emoji-picker"></emoji-picker>
+                    </div>
+
+                    <p id="chat-message" class="message"></p>
+                </section>
             </div>
-
-            <p id="chat-message" class="message"></p>
         </section>
     </main>
 

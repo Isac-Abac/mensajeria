@@ -45,3 +45,47 @@ CREATE TABLE IF NOT EXISTS mensaje (
 -- ============================================================
 DROP INDEX IF EXISTS idx_mensaje_chat ON mensaje;
 CREATE INDEX idx_mensaje_chat ON mensaje(remitente_id, destinatario_id, enviado_en);
+
+-- ============================================================
+-- Tabla de amistades
+-- Cada registro representa una amistad aprobada
+-- ============================================================
+CREATE TABLE IF NOT EXISTS amistad (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    usuario_id INT NOT NULL,
+    amigo_id INT NOT NULL,
+    creado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT fk_amistad_usuario FOREIGN KEY (usuario_id) REFERENCES usuario(id) ON DELETE CASCADE,
+    CONSTRAINT fk_amistad_amigo FOREIGN KEY (amigo_id) REFERENCES usuario(id) ON DELETE CASCADE,
+    UNIQUE KEY uq_amistad (usuario_id, amigo_id)
+);
+
+-- ============================================================
+-- Tabla de solicitudes de amistad
+-- Guarda solicitudes pendientes antes de aceptar
+-- ============================================================
+CREATE TABLE IF NOT EXISTS solicitud_amistad (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    solicitante_id INT NOT NULL,
+    destinatario_id INT NOT NULL,
+    estado ENUM('pendiente', 'aceptada', 'rechazada') NOT NULL DEFAULT 'pendiente',
+    creado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    actualizado_en TIMESTAMP NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
+    CONSTRAINT fk_solicitud_solicitante FOREIGN KEY (solicitante_id) REFERENCES usuario(id) ON DELETE CASCADE,
+    CONSTRAINT fk_solicitud_destinatario FOREIGN KEY (destinatario_id) REFERENCES usuario(id) ON DELETE CASCADE,
+    UNIQUE KEY uq_solicitud (solicitante_id, destinatario_id)
+);
+
+-- ============================================================
+-- Tabla de publicaciones
+-- Guarda publicaciones estilo Instagram
+-- ============================================================
+CREATE TABLE IF NOT EXISTS publicacion (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    usuario_id INT NOT NULL,
+    texto TEXT NULL,
+    medio_tipo ENUM('imagen', 'video') NULL,
+    medio_ruta VARCHAR(255) NULL,
+    creado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT fk_publicacion_usuario FOREIGN KEY (usuario_id) REFERENCES usuario(id) ON DELETE CASCADE
+);
