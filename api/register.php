@@ -91,7 +91,7 @@ try {
     $insert->close();
     $conn->close();
 
-    echo json_encode(['ok' => true, 'mensaje' => 'Cuenta creada correctamente']);
+    echo json_encode(['ok' => true, 'mensaje' => 'Cuenta creada exitosamente']);
 } catch (Throwable $e) {
     if (!headers_sent()) {
         header('Content-Type: application/json; charset=utf-8');
@@ -108,4 +108,4 @@ try {
         @$conn->close();
     }
 }
-?>"
+?>

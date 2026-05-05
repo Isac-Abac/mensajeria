@@ -1,14 +1,18 @@
 <?php
 // ------------------------------------------------------------
 // Conexion principal a MySQL
+// IMPORTANTE: Cambiar credenciales segun el entorno:
+// Local XAMPP: localhost / root / (sin contraseña)
+// Servidor remoto: 127.0.0.1 / isac / yolo
 // ------------------------------------------------------------
 //$Servidor = "localhost";
 //$Usuario = "root";
+//$password = "";//
 
-//$Servidor = "127.0.0.1";
 $Servidor = "127.0.0.1";
 $Usuario = "isac";
 $password = "yolo";
+
 $BaseDeDatos = "usuarios";
 
 

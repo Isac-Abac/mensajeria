@@ -82,7 +82,20 @@ formRegister.addEventListener('submit', async (e) => {
             mostrarAlerta('Error de registro', data.mensaje || 'No se pudo registrar la cuenta', 'error');
             return;
         }
-        window.location.href = 'app.php';
+        const successText = data.mensaje || 'Cuenta creada exitosamente';
+        if (window.Swal && typeof window.Swal.fire === 'function') {
+            window.Swal.fire({
+                title: 'Éxito',
+                text: successText,
+                icon: 'success',
+                confirmButtonText: 'Aceptar'
+            }).then(() => {
+                window.location.href = 'app.php';
+            });
+        } else {
+            alert(`Éxito: ${successText}`);
+            window.location.href = 'app.php';
+        }
     } catch (error) {
         mostrarAlerta('Error de conexion', 'No se pudo conectar con el servidor', 'error');
     }
