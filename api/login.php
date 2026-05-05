@@ -37,8 +37,12 @@ if (!$stmt->execute()) {
     $conn->close();
     exit;
 }
-$usuario = $stmt->get_result()->fetch_assoc();
+$stmt->store_result();
+$stmt->bind_result($userId, $userNombre, $passwordHash);
+$found = $stmt->fetch();
 $stmt->close();
+
+$usuario = $found ? ['id' => $userId, 'nombre_usuario' => $userNombre, 'password_hash' => $passwordHash] : null;
 
 // Validar credenciales
 if (!$usuario || !password_verify($password, $usuario['password_hash'])) {
