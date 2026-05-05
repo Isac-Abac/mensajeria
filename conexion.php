@@ -2,10 +2,15 @@
 // ------------------------------------------------------------
 // Conexion principal a MySQL
 // ------------------------------------------------------------
-$Servidor = "localhost";
-$Usuario = "root";
-$password = "";
+//$Servidor = "localhost";
+//$Usuario = "root";
+
+//$Servidor = "127.0.0.1";
+$Servidor = "127.0.0.1";
+$Usuario = "isac";
+$password = "yolo";
 $BaseDeDatos = "usuarios";
+
 
 // Crear conexion
 $conn = new mysqli($Servidor, $Usuario, $password, $BaseDeDatos);
