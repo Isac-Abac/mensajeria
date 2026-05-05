@@ -53,10 +53,12 @@ try {
     if (!$check->execute()) {
         throw new Exception('Error SQL al validar datos: ' . $check->error);
     }
-    $existente = $check->get_result()->fetch_assoc();
+    $check->store_result();
+    $check->bind_result($existingId);
+    $hasExistingUser = $check->fetch();
     $check->close();
 
-    if ($existente) {
+    if ($hasExistingUser) {
         http_response_code(409);
         echo json_encode(['ok' => false, 'mensaje' => 'El usuario o correo ya existe']);
         $conn->close();
